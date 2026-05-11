@@ -10,12 +10,10 @@ const HEADERS = {
     'sec-ch-ua-platform': '"Windows"'
 };
 
-// Helper: base64 encode
 function btoa_safe(str) {
     return btoa(unescape(encodeURIComponent(str)));
 }
 
-// Helper: decode Miruro's gzip+base64 response
 async function decodeMiruroResponse(text) {
     try {
         const b64 = text.replace(/-/g, '+').replace(/_/g, '/');
@@ -49,7 +47,6 @@ async function decodeMiruroResponse(text) {
     }
 }
 
-// Step 1: Search via Miruro pipe
 async function searchResults(keyword) {
     const results = [];
 
@@ -102,7 +99,6 @@ async function searchResults(keyword) {
     return JSON.stringify(results);
 }
 
-// Step 2: Get anime details from Miruro pipe
 async function extractDetails(anilistId) {
     try {
         const pipeQuery = {
@@ -133,7 +129,6 @@ async function extractDetails(anilistId) {
     }
 }
 
-// Step 3: Get episode list via AllAnime API
 async function extractEpisodes(anilistId) {
     const results = [];
 
@@ -185,7 +180,6 @@ async function extractEpisodes(anilistId) {
     return JSON.stringify(results);
 }
 
-// Step 4: Get stream URL via Miruro pipe
 async function extractStreamUrl(slug) {
     try {
         const anilistIdMatch = slug.match(/anilist:(\d+)/);
@@ -196,7 +190,6 @@ async function extractStreamUrl(slug) {
             return JSON.stringify({ streams: [] });
         }
 
-        const anilistId = parseInt(anilistIdMatch[1]);
         const episodeId = epIdMatch[1];
 
         const pipeQuery = {
@@ -205,11 +198,9 @@ async function extractStreamUrl(slug) {
             query: {
                 episodeId: episodeId,
                 provider: 'ally',
-                category: 'dub',
-                anilistId: anilistId
+                category: 'dub'
             },
-            body: null,
-            version: '0.2.0'
+            body: null
         };
 
         const e = btoa_safe(JSON.stringify(pipeQuery));
