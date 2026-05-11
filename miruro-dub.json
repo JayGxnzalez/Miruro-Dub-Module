@@ -11,7 +11,7 @@
   "quality": "1080p",
   "baseUrl": "https://www.miruro.to/",
   "searchBaseUrl": "https://www.miruro.to/",
-  "scriptUrl": "YOUR_HOSTED_JS_URL_HERE",
+  "scriptUrl": "https://raw.githubusercontent.com/JayGxnzalez/Miruro-Dub-Module/refs/heads/main/miruro-dub.js",
   "asyncJS": true,
   "type": "anime",
   "softsub": false,
