@@ -78,10 +78,6 @@ async function searchResults(keyword) {
         }
 
         for (const anime of data) {
-            // Only include titles with English dub available
-            const dubLangs = anime.dubLanguages || [];
-            if (!dubLangs.includes('English')) continue;
-
             const title =
                 anime.title?.english ||
                 anime.title?.romaji ||
