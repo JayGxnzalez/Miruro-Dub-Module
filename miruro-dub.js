@@ -10,7 +10,7 @@ const HEADERS = {
     'sec-ch-ua-platform': '"Windows"'
 };
 
-// Helper: base64 encode (URL-safe not needed for Miruro pipe)
+// Helper: base64 encode
 function btoa_safe(str) {
     return btoa(unescape(encodeURIComponent(str)));
 }
@@ -18,7 +18,6 @@ function btoa_safe(str) {
 // Helper: decode Miruro's gzip+base64 response
 async function decodeMiruroResponse(text) {
     try {
-        // The response is URL-safe base64 encoded gzip
         const b64 = text.replace(/-/g, '+').replace(/_/g, '/');
         const binary = atob(b64);
         const bytes = new Uint8Array(binary.length);
@@ -50,34 +49,51 @@ async function decodeMiruroResponse(text) {
     }
 }
 
-// Step 1: Search AniList for anime by keyword
+// Step 1: Search via Miruro pipe
 async function searchResults(keyword) {
     const results = [];
-    const query = `
-        query ($search: String) {
-            Page(page: 1, perPage: 20) {
-                media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
-                    id
-                    title { english romaji native }
-                    coverImage { large }
-                }
-            }
-        }
-    `;
 
     try {
-        const res = await fetchv2('https://graphql.anilist.co', {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-        }, 'POST', JSON.stringify({ query, variables: { search: keyword } }));
+        const pipeQuery = {
+            path: 'search',
+            method: 'GET',
+            query: {
+                q: keyword,
+                limit: 20,
+                offset: 0,
+                type: 'ANIME',
+                sort: 'SEARCH_MATCH'
+            },
+            body: null
+        };
 
-        const data = await res.json();
-        const mediaList = data?.data?.Page?.media || [];
+        const e = btoa_safe(JSON.stringify(pipeQuery));
+        const res = await fetchv2(`${MIRURO_PIPE}?e=${e}`, HEADERS);
+        const text = await res.text();
+        const data = await decodeMiruroResponse(text);
 
-        for (const anime of mediaList) {
-            const title = anime.title.english || anime.title.romaji || anime.title.native || 'Unknown';
-            const image = anime.coverImage.large;
+        if (!Array.isArray(data)) {
+            console.error('Unexpected search response shape');
+            return JSON.stringify([]);
+        }
+
+        for (const anime of data) {
+            // Only include titles with English dub available
+            const dubLangs = anime.dubLanguages || [];
+            if (!dubLangs.includes('English')) continue;
+
+            const title =
+                anime.title?.english ||
+                anime.title?.romaji ||
+                anime.title?.native ||
+                'Unknown';
+            const image =
+                anime.coverImage?.extraLarge ||
+                anime.coverImage?.large ||
+                anime.coverImage?.medium ||
+                '';
             const href = String(anime.id);
+
             if (title && image && href) {
                 results.push({ title, image, href });
             }
@@ -89,7 +105,7 @@ async function searchResults(keyword) {
     return JSON.stringify(results);
 }
 
-// Step 2: Get anime details from Miruro (which uses AniList data)
+// Step 2: Get anime details from Miruro pipe
 async function extractDetails(anilistId) {
     try {
         const pipeQuery = { path: `info/anilist/${anilistId}`, method: 'GET', query: {}, body: null };
@@ -119,7 +135,6 @@ async function extractEpisodes(anilistId) {
     const results = [];
 
     try {
-        // Search AllAnime by AniList ID to get the show ID
         const searchQuery = `
             query($search: SearchInput, $limit: Int, $page: Int, $translationType: VaildTranslationTypeEnumType) {
                 shows(search: $search, limit: $limit, page: $page, translationType: $translationType) {
@@ -153,7 +168,6 @@ async function extractEpisodes(anilistId) {
         const dubEpisodes = show.availableEpisodes?.dub || 0;
 
         for (let i = 1; i <= dubEpisodes; i++) {
-            // episodeId = base64("allmanga:{showId}:{episodeNum}")
             const rawId = `allmanga:${showId}:${i}`;
             const episodeId = btoa_safe(rawId);
             results.push({
@@ -216,7 +230,7 @@ async function extractStreamUrl(slug) {
             }
         }
 
-        // Fallback: try HLS streams if no MP4
+        // Fallback: HLS streams if no MP4
         if (streams.length === 0) {
             for (const stream of data.streams) {
                 if (stream.url && stream.type !== 'embed') {
