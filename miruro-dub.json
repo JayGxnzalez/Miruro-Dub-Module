@@ -11,7 +11,7 @@
   "quality": "1080p",
   "baseUrl": "https://www.miruro.to/",
   "searchBaseUrl": "https://www.miruro.to/",
-  "scriptUrl": "https://raw.githubusercontent.com/JayGxnzalez/Miruro-Dub-Module/refs/heads/main/miruro-dub.js",
+  "scriptUrl": "https://raw.githubusercontent.com/JayGxnzalez/Miruro-Dub-Module/refs/heads/main/miruro-dub.js?token=GHSAT0AAAAAADPHOROQHWP74WBZ5QSTEHBG2QCCNFQ",
   "asyncJS": true,
   "type": "anime",
   "softsub": false,
