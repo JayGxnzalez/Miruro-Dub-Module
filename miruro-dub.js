@@ -1,27 +1,53 @@
-// Miruro DUB - Sources via AllAnime/AllManga infrastructure
-// Streams: Direct 1080p MP4 via tools.fast4speed.rsvp (no proxy throttling)
+// Miruro DUB - Full rewrite with XOR decryption and native episodes endpoint
 
-const ALLANIME_API = 'https://api.allanime.day/api';
+const MIRURO_BASE = 'https://www.miruro.tv';
 const MIRURO_PIPE = 'https://www.miruro.tv/api/secure/pipe';
+const MIRURO_KEY = '71951034f8fbcf53d89db52ceb3dc22c';
 
-const HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Referer': 'https://allmanga.to/',
-    'sec-ch-ua-platform': '"Windows"'
-};
-
-function btoa_safe(str) {
-    return btoa(unescape(encodeURIComponent(str)));
+// Pre-compute XOR key bytes
+const XOR_KEY_BYTES = [];
+for (let i = 0; i < MIRURO_KEY.length; i += 2) {
+    XOR_KEY_BYTES.push(parseInt(MIRURO_KEY.substr(i, 2), 16));
 }
 
-async function decodeMiruroResponse(text) {
+const HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+    'Accept': '*/*',
+    'Origin': 'https://www.miruro.tv',
+    'Referer': 'https://www.miruro.tv/',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin'
+};
+
+// Helper: base64url encode a JSON object
+function encodePayload(obj) {
+    const jsonStr = JSON.stringify(obj);
+    const utf8Str = unescape(encodeURIComponent(jsonStr));
+    const b64 = btoa(utf8Str);
+    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// Helper: decode Miruro's XOR + gzip + base64 response
+async function decodePipeResponse(text) {
     try {
-        const b64 = text.replace(/-/g, '+').replace(/_/g, '/');
-        const binary = atob(b64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
+        // Step 1: base64url decode
+        let b64 = text.replace(/-/g, '+').replace(/_/g, '/');
+        const pad = b64.length % 4;
+        if (pad) b64 += '='.repeat(4 - pad);
+
+        const binaryStr = atob(b64);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
         }
+
+        // Step 2: XOR decrypt
+        for (let i = 0; i < bytes.length; i++) {
+            bytes[i] ^= XOR_KEY_BYTES[i % XOR_KEY_BYTES.length];
+        }
+
+        // Step 3: gzip decompress
         const ds = new DecompressionStream('gzip');
         const writer = ds.writable.getWriter();
         writer.write(bytes);
@@ -40,42 +66,62 @@ async function decodeMiruroResponse(text) {
             result.set(chunk, offset);
             offset += chunk.length;
         }
+
         return JSON.parse(new TextDecoder().decode(result));
     } catch (e) {
-        console.error('Failed to decode Miruro response:', e);
+        console.error('Failed to decode pipe response:', e);
         return null;
     }
 }
 
+// Core pipe request helper
+async function pipeRequest(path, query = {}, referer = null) {
+    const payload = {
+        path: path,
+        method: 'GET',
+        query: query,
+        body: null,
+        version: '0.2.0'
+    };
+
+    const e = encodePayload(payload);
+    const headers = { ...HEADERS };
+    if (referer) headers['Referer'] = referer;
+
+    try {
+        const res = await fetchv2(`${MIRURO_PIPE}?e=${e}`, headers);
+        const text = await res.text();
+
+        if (!text || text.trim().startsWith('<')) {
+            console.error('Blocked or invalid response for path:', path);
+            return null;
+        }
+
+        return await decodePipeResponse(text);
+    } catch (e) {
+        console.error('Pipe request error:', e);
+        return null;
+    }
+}
+
+// Step 1: Search
 async function searchResults(keyword) {
     const results = [];
 
     try {
-        const pipeQuery = {
-            path: 'search',
-            method: 'GET',
-            query: {
-                q: keyword,
-                limit: 20,
-                offset: 0,
-                type: 'ANIME',
-                sort: 'POPULARITY_DESC'
-            },
-            body: null,
-            version: '0.2.0'
-        };
+        const data = await pipeRequest('search', {
+            q: keyword,
+            limit: 20,
+            offset: 0,
+            type: 'ANIME',
+            sort: 'POPULARITY_DESC'
+        });
 
-        const e = btoa_safe(JSON.stringify(pipeQuery));
-        const res = await fetchv2(`${MIRURO_PIPE}?e=${e}`, HEADERS);
-        const text = await res.text();
-        const data = await decodeMiruroResponse(text);
+        if (!data) return JSON.stringify([]);
 
-        if (!Array.isArray(data)) {
-            console.error('Unexpected search response shape');
-            return JSON.stringify([]);
-        }
+        const items = Array.isArray(data) ? data : (data.results || []);
 
-        for (const anime of data) {
+        for (const anime of items) {
             const title =
                 anime.title?.english ||
                 anime.title?.romaji ||
@@ -99,24 +145,19 @@ async function searchResults(keyword) {
     return JSON.stringify(results);
 }
 
+// Step 2: Details
 async function extractDetails(anilistId) {
     try {
-        const pipeQuery = {
-            path: `info/anilist/${anilistId}`,
-            method: 'GET',
-            query: {},
-            body: null,
-            version: '0.2.0'
-        };
-        const e = btoa_safe(JSON.stringify(pipeQuery));
-        const res = await fetchv2(`${MIRURO_PIPE}?e=${e}`, HEADERS);
-        const text = await res.text();
-        const data = await decodeMiruroResponse(text);
+        const data = await pipeRequest(`info/anilist/${anilistId}`);
 
-        const description = data?.description || data?.data?.description || 'No description available';
-        const synonyms = data?.synonyms || data?.data?.synonyms || [];
-        const startDate = data?.startDate || data?.data?.startDate;
-        const airdate = startDate ? `${startDate.year || ''}` : 'N/A';
+        if (!data) {
+            return JSON.stringify([{ description: 'No description available', aliases: 'N/A', airdate: 'N/A' }]);
+        }
+
+        const description = data.description || 'No description available';
+        const synonyms = data.synonyms || [];
+        const startDate = data.startDate;
+        const airdate = startDate?.year ? String(startDate.year) : 'N/A';
 
         return JSON.stringify([{
             description: cleanHtmlSymbols(description),
@@ -129,50 +170,49 @@ async function extractDetails(anilistId) {
     }
 }
 
+// Step 3: Episodes via Miruro native endpoint
 async function extractEpisodes(anilistId) {
     const results = [];
 
     try {
-        const searchQuery = `
-            query($search: SearchInput, $limit: Int, $page: Int, $translationType: VaildTranslationTypeEnumType) {
-                shows(search: $search, limit: $limit, page: $page, translationType: $translationType) {
-                    edges { _id name availableEpisodes }
+        const data = await pipeRequest('episodes', { anilistId: anilistId });
+
+        if (!data) return JSON.stringify([]);
+
+        // Get provider episode IDs from the providers map
+        // We prefer 'ally' for dub, fall back to first available
+        const providers = data.providers || {};
+        let providerKey = null;
+        let episodeList = [];
+
+        // Try ally first for dub
+        if (providers.ally?.episodes?.dub?.length) {
+            providerKey = 'ally';
+            episodeList = providers.ally.episodes.dub;
+        } else {
+            // Fall back to any provider with dub episodes
+            for (const key of Object.keys(providers)) {
+                if (providers[key]?.episodes?.dub?.length) {
+                    providerKey = key;
+                    episodeList = providers[key].episodes.dub;
+                    break;
                 }
             }
-        `;
+        }
 
-        const variables = {
-            search: { anilistId: parseInt(anilistId) },
-            limit: 1,
-            page: 1,
-            translationType: 'dub'
-        };
-
-        const params = new URLSearchParams({
-            variables: JSON.stringify(variables),
-            query: searchQuery
-        });
-
-        const res = await fetchv2(`${ALLANIME_API}?${params.toString()}`, HEADERS);
-        const data = await res.json();
-        const show = data?.data?.shows?.edges?.[0];
-
-        if (!show) {
-            console.error('Show not found on AllAnime for AniList ID:', anilistId);
+        if (!episodeList.length) {
+            console.error('No dub episodes found for AniList ID:', anilistId);
             return JSON.stringify([]);
         }
 
-        const showId = show._id;
-        const dubEpisodes = show.availableEpisodes?.dub || 0;
-
-        for (let i = 1; i <= dubEpisodes; i++) {
-            const rawId = `allmanga:${showId}:${i}`;
-            const episodeId = btoa_safe(rawId);
+        for (const ep of episodeList) {
             results.push({
-                number: i,
-                href: `anilist:${anilistId}|epId:${episodeId}`
+                number: ep.number,
+                href: `anilistId:${anilistId}|provider:${providerKey}|epId:${ep.id}`
             });
         }
+
+        results.sort((a, b) => a.number - b.number);
     } catch (e) {
         console.error('Episodes error:', e);
     }
@@ -180,61 +220,55 @@ async function extractEpisodes(anilistId) {
     return JSON.stringify(results);
 }
 
+// Step 4: Stream URL
 async function extractStreamUrl(slug) {
     try {
-        const anilistIdMatch = slug.match(/anilist:(\d+)/);
+        const anilistIdMatch = slug.match(/anilistId:(\d+)/);
+        const providerMatch = slug.match(/provider:([^|]+)/);
         const epIdMatch = slug.match(/epId:([^|]+)/);
 
-        if (!anilistIdMatch || !epIdMatch) {
+        if (!anilistIdMatch || !providerMatch || !epIdMatch) {
             console.error('Invalid slug format:', slug);
             return JSON.stringify({ streams: [] });
         }
 
+        const anilistId = anilistIdMatch[1];
+        const provider = providerMatch[1];
         const episodeId = epIdMatch[1];
 
-        const pipeQuery = {
-            path: 'sources',
-            method: 'GET',
-            query: {
-                episodeId: episodeId,
-                provider: 'ally',
-                category: 'dub'
-            },
-            body: null
-        };
+        const watchReferer = `${MIRURO_BASE}/watch/${anilistId}?ep=${episodeId}`;
 
-        const e = btoa_safe(JSON.stringify(pipeQuery));
-        const res = await fetchv2(`${MIRURO_PIPE}?e=${e}`, HEADERS);
-        const text = await res.text();
-        const data = await decodeMiruroResponse(text);
+        const data = await pipeRequest('sources', {
+            episodeId: episodeId,
+            provider: provider,
+            category: 'dub'
+        }, watchReferer);
 
-        if (!data?.streams?.length) {
-            console.error('No streams found');
-            return JSON.stringify({ streams: [] });
-        }
+        if (!data) return JSON.stringify({ streams: [] });
 
+        const videoArray = data.streams || data.sources || [];
         const streams = [];
 
-        for (const stream of data.streams) {
-            if (stream.type === 'mp4' && stream.url) {
-                streams.push({
-                    title: `Direct - ${stream.quality || '1080p'}`,
-                    streamUrl: stream.url,
-                    headers: { 'Referer': stream.referer || 'https://allmanga.to/' }
-                });
-            }
+        for (const stream of videoArray) {
+            if (!stream.url) continue;
+            if (stream.type === 'embed') continue;
+
+            streams.push({
+                title: `${provider.toUpperCase()} - ${stream.quality || stream.type || 'Auto'}`,
+                streamUrl: stream.url,
+                headers: { 'Referer': stream.referer || `${MIRURO_BASE}/` }
+            });
         }
 
-        // Fallback: HLS streams if no MP4
+        // Fallback: include embeds if nothing else
         if (streams.length === 0) {
-            for (const stream of data.streams) {
-                if (stream.url && stream.type !== 'embed') {
-                    streams.push({
-                        title: `${stream.server || 'Stream'} - ${stream.quality || 'Auto'}`,
-                        streamUrl: stream.url,
-                        headers: { 'Referer': stream.referer || 'https://allmanga.to/' }
-                    });
-                }
+            for (const stream of videoArray) {
+                if (!stream.url) continue;
+                streams.push({
+                    title: `${stream.server || provider.toUpperCase()} - ${stream.quality || 'Auto'}`,
+                    streamUrl: stream.url,
+                    headers: { 'Referer': stream.referer || `${MIRURO_BASE}/` }
+                });
             }
         }
 
