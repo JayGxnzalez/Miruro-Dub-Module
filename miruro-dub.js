@@ -2,7 +2,7 @@
 // Streams: Direct 1080p MP4 via tools.fast4speed.rsvp (no proxy throttling)
 
 const ALLANIME_API = 'https://api.allanime.day/api';
-const MIRURO_PIPE = 'https://www.miruro.to/api/secure/pipe';
+const MIRURO_PIPE = 'https://www.miruro.tv/api/secure/pipe';
 
 const HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -62,9 +62,10 @@ async function searchResults(keyword) {
                 limit: 20,
                 offset: 0,
                 type: 'ANIME',
-                sort: 'SEARCH_MATCH'
+                sort: 'POPULARITY_DESC'
             },
-            body: null
+            body: null,
+            version: '0.2.0'
         };
 
         const e = btoa_safe(JSON.stringify(pipeQuery));
@@ -104,7 +105,13 @@ async function searchResults(keyword) {
 // Step 2: Get anime details from Miruro pipe
 async function extractDetails(anilistId) {
     try {
-        const pipeQuery = { path: `info/anilist/${anilistId}`, method: 'GET', query: {}, body: null };
+        const pipeQuery = {
+            path: `info/anilist/${anilistId}`,
+            method: 'GET',
+            query: {},
+            body: null,
+            version: '0.2.0'
+        };
         const e = btoa_safe(JSON.stringify(pipeQuery));
         const res = await fetchv2(`${MIRURO_PIPE}?e=${e}`, HEADERS);
         const text = await res.text();
@@ -201,7 +208,8 @@ async function extractStreamUrl(slug) {
                 category: 'dub',
                 anilistId: anilistId
             },
-            body: null
+            body: null,
+            version: '0.2.0'
         };
 
         const e = btoa_safe(JSON.stringify(pipeQuery));
