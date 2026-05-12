@@ -20,14 +20,6 @@ try { _global = globalThis; } catch(e) {
     }
 }
 
-async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
-    try {
-        return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
-    } catch(e) {
-        try { return await fetch(url, options); } catch(error) { return null; }
-    }
-}
-
 function encodePayload(obj) {
     const jsonStr = JSON.stringify(obj);
     const utf8Str = unescape(encodeURIComponent(jsonStr));
@@ -38,41 +30,41 @@ function encodePayload(obj) {
 async function ensurePako() {
     if (_global.pako) return;
     try {
-        const res = await soraFetch('https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js');
-        const code = typeof res.text === 'function' ? await res.text() : res.data;
+        const res = await fetchv2('https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js');
+        const code = await res.text();
         const runner = new Function('window', 'global', code);
         runner(_global, _global);
-        console.error('Pako loaded successfully:', typeof _global.pako);
+        console.error('Pako loaded successfully');
     } catch (e) {
-        console.error('Failed to load pako:', e.message);
+        console.error('Failed to load pako:' + e.message);
     }
 }
 
 async function decodePipeResponse(text) {
     try {
-        console.error('Raw text length:', text?.length);
-        console.error('Raw text first 100:', text?.substring(0, 100));
+        console.error('Raw text length:' + text?.length);
+        console.error('Raw text first 100:' + text?.substring(0, 100));
 
         await ensurePako();
-        console.error('Pako type:', typeof _global.pako);
+        console.error('Pako type:' + typeof _global.pako);
 
         let b64 = text.replace(/-/g, '+').replace(/_/g, '/');
         const pad = b64.length % 4;
         if (pad) b64 += '='.repeat(4 - pad);
 
         const binaryStr = atob(b64);
-        console.error('Binary string length:', binaryStr.length);
+        console.error('Binary string length:' + binaryStr.length);
 
         const bytes = new Uint8Array(binaryStr.length);
         for (let i = 0; i < binaryStr.length; i++) {
             bytes[i] = binaryStr.charCodeAt(i);
         }
-        console.error('First 4 bytes:', bytes[0], bytes[1], bytes[2], bytes[3]);
+        console.error('First 4 bytes:' + bytes[0] + ' ' + bytes[1] + ' ' + bytes[2] + ' ' + bytes[3]);
 
         const result = _global.pako.ungzip(bytes, { to: 'string' });
         return JSON.parse(result);
     } catch (e) {
-        console.error('Failed to decode pipe response:', e.message, e.stack);
+        console.error('Failed to decode pipe response:' + e.message);
         return null;
     }
 }
@@ -91,24 +83,20 @@ async function pipeRequest(path, query = {}, referer = null) {
     if (referer) headers['Referer'] = referer;
 
     try {
-        const res = await soraFetch(`${MIRURO_PIPE}?e=${e}`, { headers: headers, method: 'GET', body: null });
+        const res = await fetchv2(`${MIRURO_PIPE}?e=${e}`, headers);
+        const text = await res.text();
 
-        let text = null;
-        if (res) {
-            text = typeof res.text === 'function' ? await res.text() : res.data;
-        }
-
-        console.error('pipeRequest text length:', text?.length);
-        console.error('pipeRequest text first 50:', text?.substring(0, 50));
+        console.error('pipeRequest text length:' + text?.length);
+        console.error('pipeRequest text first 50:' + text?.substring(0, 50));
 
         if (!text || text.trim().startsWith('<')) {
-            console.error('Blocked or invalid response for path:', path);
+            console.error('Blocked or invalid response for path:' + path);
             return null;
         }
 
         return await decodePipeResponse(text);
     } catch (e) {
-        console.error('Pipe request error:', e.message);
+        console.error('Pipe request error:' + e.message);
         return null;
     }
 }
@@ -147,7 +135,7 @@ async function searchResults(keyword) {
             }
         }
     } catch (e) {
-        console.error('Search error:', e);
+        console.error('Search error:' + e);
     }
 
     return JSON.stringify(results);
@@ -172,7 +160,7 @@ async function extractDetails(anilistId) {
             airdate: airdate
         }]);
     } catch (e) {
-        console.error('Details error:', e);
+        console.error('Details error:' + e);
         return JSON.stringify([{ description: 'No description available', aliases: 'N/A', airdate: 'N/A' }]);
     }
 }
@@ -203,7 +191,7 @@ async function extractEpisodes(anilistId) {
         }
 
         if (!episodeList.length) {
-            console.error('No dub episodes found for AniList ID:', anilistId);
+            console.error('No dub episodes found for AniList ID:' + anilistId);
             return JSON.stringify([]);
         }
 
@@ -216,7 +204,7 @@ async function extractEpisodes(anilistId) {
 
         results.sort((a, b) => a.number - b.number);
     } catch (e) {
-        console.error('Episodes error:', e);
+        console.error('Episodes error:' + e);
     }
 
     return JSON.stringify(results);
@@ -229,7 +217,7 @@ async function extractStreamUrl(slug) {
         const epIdMatch = slug.match(/epId:([^|]+)/);
 
         if (!anilistIdMatch || !providerMatch || !epIdMatch) {
-            console.error('Invalid slug format:', slug);
+            console.error('Invalid slug format:' + slug);
             return JSON.stringify({ streams: [] });
         }
 
@@ -274,7 +262,7 @@ async function extractStreamUrl(slug) {
 
         return JSON.stringify({ streams, subtitle: '' });
     } catch (e) {
-        console.error('Stream error:', e);
+        console.error('Stream error:' + e);
         return JSON.stringify({ streams: [] });
     }
 }
