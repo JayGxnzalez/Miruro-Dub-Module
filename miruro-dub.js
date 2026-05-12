@@ -2,6 +2,12 @@
 
 const MIRURO_BASE = 'https://www.miruro.to';
 const MIRURO_PIPE = 'https://www.miruro.to/api/secure/pipe';
+const MIRURO_KEY = '71951034f8fbcf53d89db52ceb3dc22c';
+
+const XOR_KEY = [];
+for (let i = 0; i < MIRURO_KEY.length; i += 2) {
+    XOR_KEY.push(parseInt(MIRURO_KEY.substr(i, 2), 16));
+}
 
 const HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
@@ -69,15 +75,31 @@ async function decodePipeResponse(text) {
         if (pad) b64 += '='.repeat(4 - pad);
 
         const binaryStr = pureAtob(b64);
-        console.error('Binary string length:' + binaryStr.length);
-
         const bytes = new Uint8Array(binaryStr.length);
         for (let i = 0; i < binaryStr.length; i++) {
             bytes[i] = binaryStr.charCodeAt(i);
         }
-        console.error('First 4 bytes:' + bytes[0] + ' ' + bytes[1] + ' ' + bytes[2] + ' ' + bytes[3]);
 
-        const result = _global.pako.ungzip(bytes, { to: 'string' });
+        // XOR decrypt
+        for (let i = 0; i < bytes.length; i++) {
+            bytes[i] ^= XOR_KEY[i % XOR_KEY.length];
+        }
+
+        console.error('First 4 bytes after XOR:' + bytes[0] + ' ' + bytes[1] + ' ' + bytes[2] + ' ' + bytes[3]);
+
+        // Try ungzip first, then inflate
+        let result = null;
+        try {
+            result = _global.pako.ungzip(bytes, { to: 'string' });
+        } catch (e1) {
+            try {
+                result = _global.pako.inflate(bytes, { to: 'string' });
+            } catch (e2) {
+                console.error('Both ungzip and inflate failed:' + e2.message);
+                return null;
+            }
+        }
+
         return JSON.parse(result);
     } catch (e) {
         console.error('Failed to decode pipe response:' + e.message);
