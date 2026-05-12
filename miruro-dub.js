@@ -1,14 +1,7 @@
-// Miruro DUB - Full rewrite with XOR decryption and native episodes endpoint
+// Miruro DUB - Full rewrite with pako decompression
 
 const MIRURO_BASE = 'https://www.miruro.tv';
 const MIRURO_PIPE = 'https://www.miruro.tv/api/secure/pipe';
-const MIRURO_KEY = '71951034f8fbcf53d89db52ceb3dc22c';
-
-// Pre-compute XOR key bytes
-const XOR_KEY_BYTES = [];
-for (let i = 0; i < MIRURO_KEY.length; i += 2) {
-    XOR_KEY_BYTES.push(parseInt(MIRURO_KEY.substr(i, 2), 16));
-}
 
 const HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
@@ -28,10 +21,23 @@ function encodePayload(obj) {
     return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-// Helper: decode Miruro's XOR + gzip + base64 response
+// Load pako from CDN if not available
+async function ensurePako() {
+    if (typeof pako !== 'undefined') return;
+    try {
+        const res = await fetchv2('https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js', {});
+        const code = await res.text();
+        eval(code);
+    } catch (e) {
+        console.error('Failed to load pako:', e);
+    }
+}
+
+// Decode Miruro's base64 + gzip response using pako
 async function decodePipeResponse(text) {
     try {
-        // Step 1: base64url decode
+        await ensurePako();
+
         let b64 = text.replace(/-/g, '+').replace(/_/g, '/');
         const pad = b64.length % 4;
         if (pad) b64 += '='.repeat(4 - pad);
@@ -42,32 +48,8 @@ async function decodePipeResponse(text) {
             bytes[i] = binaryStr.charCodeAt(i);
         }
 
-        // Step 2: XOR decrypt
-        for (let i = 0; i < bytes.length; i++) {
-            bytes[i] ^= XOR_KEY_BYTES[i % XOR_KEY_BYTES.length];
-        }
-
-        // Step 3: gzip decompress
-        const ds = new DecompressionStream('gzip');
-        const writer = ds.writable.getWriter();
-        writer.write(bytes);
-        writer.close();
-        const reader = ds.readable.getReader();
-        const chunks = [];
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            chunks.push(value);
-        }
-        const totalLength = chunks.reduce((acc, chunk) => acc + chunk.length, 0);
-        const result = new Uint8Array(totalLength);
-        let offset = 0;
-        for (const chunk of chunks) {
-            result.set(chunk, offset);
-            offset += chunk.length;
-        }
-
-        return JSON.parse(new TextDecoder().decode(result));
+        const result = pako.ungzip(bytes, { to: 'string' });
+        return JSON.parse(result);
     } catch (e) {
         console.error('Failed to decode pipe response:', e);
         return null;
@@ -179,13 +161,11 @@ async function extractEpisodes(anilistId) {
 
         if (!data) return JSON.stringify([]);
 
-        // Get provider episode IDs from the providers map
-        // We prefer 'ally' for dub, fall back to first available
         const providers = data.providers || {};
         let providerKey = null;
         let episodeList = [];
 
-        // Try ally first for dub
+        // Prefer ally for dub
         if (providers.ally?.episodes?.dub?.length) {
             providerKey = 'ally';
             episodeList = providers.ally.episodes.dub;
