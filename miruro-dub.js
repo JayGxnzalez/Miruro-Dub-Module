@@ -60,7 +60,6 @@ async function ensurePako() {
         const code = await res.text();
         const runner = new Function('window', 'global', code);
         runner(_global, _global);
-        console.error('Pako loaded successfully');
     } catch (e) {
         console.error('Failed to load pako:' + e.message);
     }
@@ -80,14 +79,10 @@ async function decodePipeResponse(text) {
             bytes[i] = binaryStr.charCodeAt(i);
         }
 
-        // XOR decrypt
         for (let i = 0; i < bytes.length; i++) {
             bytes[i] ^= XOR_KEY[i % XOR_KEY.length];
         }
 
-        console.error('First 4 bytes after XOR:' + bytes[0] + ' ' + bytes[1] + ' ' + bytes[2] + ' ' + bytes[3]);
-
-        // Try ungzip first, then inflate
         let result = null;
         try {
             result = _global.pako.ungzip(bytes, { to: 'string' });
@@ -123,8 +118,6 @@ async function pipeRequest(path, query = {}, referer = null) {
     try {
         const res = await fetchv2(`${MIRURO_PIPE}?e=${e}`, headers);
         const text = await res.text();
-
-        console.error('pipeRequest text length:' + text?.length);
 
         if (!text || text.trim().startsWith('<')) {
             console.error('Blocked or invalid response for path:' + path);
@@ -255,7 +248,7 @@ async function extractStreamUrl(slug) {
 
         if (!anilistIdMatch || !providerMatch || !epIdMatch) {
             console.error('Invalid slug format:' + slug);
-            return JSON.stringify({ streams: [] });
+            return JSON.stringify({ streams: [], subtitles: [] });
         }
 
         const anilistId = anilistIdMatch[1];
@@ -270,7 +263,7 @@ async function extractStreamUrl(slug) {
             category: 'dub'
         }, watchReferer);
 
-        if (!data) return JSON.stringify({ streams: [] });
+        if (!data) return JSON.stringify({ streams: [], subtitles: [] });
 
         const videoArray = data.streams || data.sources || [];
         const streams = [];
@@ -282,7 +275,7 @@ async function extractStreamUrl(slug) {
             streams.push({
                 title: `${provider.toUpperCase()} - ${stream.quality || stream.type || 'Auto'}`,
                 streamUrl: stream.url,
-                headers: { 'Referer': stream.referer || `${MIRURO_BASE}/` }
+                headers: { 'Referer': stream.referer || 'https://allmanga.to/' }
             });
         }
 
@@ -292,15 +285,15 @@ async function extractStreamUrl(slug) {
                 streams.push({
                     title: `${stream.server || provider.toUpperCase()} - ${stream.quality || 'Auto'}`,
                     streamUrl: stream.url,
-                    headers: { 'Referer': stream.referer || `${MIRURO_BASE}/` }
+                    headers: { 'Referer': stream.referer || 'https://allmanga.to/' }
                 });
             }
         }
 
-        return JSON.stringify({ streams, subtitle: '' });
+        return JSON.stringify({ streams, subtitles: [] });
     } catch (e) {
         console.error('Stream error:' + e);
-        return JSON.stringify({ streams: [] });
+        return JSON.stringify({ streams: [], subtitles: [] });
     }
 }
 
