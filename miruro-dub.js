@@ -49,22 +49,29 @@ async function ensurePako() {
 
 async function decodePipeResponse(text) {
     try {
+        console.error('Raw text length:', text?.length);
+        console.error('Raw text first 100:', text?.substring(0, 100));
+
         await ensurePako();
+        console.error('Pako loaded:', typeof _global.pako);
 
         let b64 = text.replace(/-/g, '+').replace(/_/g, '/');
         const pad = b64.length % 4;
         if (pad) b64 += '='.repeat(4 - pad);
 
         const binaryStr = atob(b64);
+        console.error('Binary string length:', binaryStr.length);
+
         const bytes = new Uint8Array(binaryStr.length);
         for (let i = 0; i < binaryStr.length; i++) {
             bytes[i] = binaryStr.charCodeAt(i);
         }
+        console.error('First 4 bytes:', bytes[0], bytes[1], bytes[2], bytes[3]);
 
         const result = _global.pako.ungzip(bytes, { to: 'string' });
         return JSON.parse(result);
     } catch (e) {
-        console.error('Failed to decode pipe response:', e);
+        console.error('Failed to decode pipe response:', e.message, e.stack);
         return null;
     }
 }
