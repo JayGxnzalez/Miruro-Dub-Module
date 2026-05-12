@@ -20,11 +20,31 @@ try { _global = globalThis; } catch(e) {
     }
 }
 
+function pureAtob(input) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+    let str = String(input).replace(/=+$/, '');
+    let output = '';
+    for (let bc = 0, bs = 0, buffer, i = 0;
+        buffer = str.charAt(i++);
+        ~buffer && (bs = bc % 4 ? bs * 64 + buffer : buffer, bc++ % 4)
+            ? output += String.fromCharCode(255 & bs >> (-2 * bc & 6))
+            : 0
+    ) { buffer = chars.indexOf(buffer); }
+    return output;
+}
+
 function encodePayload(obj) {
     const jsonStr = JSON.stringify(obj);
     const utf8Str = unescape(encodeURIComponent(jsonStr));
-    const b64 = btoa(utf8Str);
-    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+    let str = utf8Str, output = '';
+    for (let block = 0, charCode, i = 0, map = chars;
+        str.charAt(i | 0) || (map = '=', i % 1);
+        output += map.charAt(63 & block >> 8 - i % 1 * 8)) {
+        charCode = str.charCodeAt(i += 3/4);
+        block = block << 8 | charCode;
+    }
+    return output.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 async function ensurePako() {
@@ -42,17 +62,13 @@ async function ensurePako() {
 
 async function decodePipeResponse(text) {
     try {
-        console.error('Raw text length:' + text?.length);
-        console.error('Raw text first 100:' + text?.substring(0, 100));
-
         await ensurePako();
-        console.error('Pako type:' + typeof _global.pako);
 
         let b64 = text.replace(/-/g, '+').replace(/_/g, '/');
         const pad = b64.length % 4;
         if (pad) b64 += '='.repeat(4 - pad);
 
-        const binaryStr = atob(b64);
+        const binaryStr = pureAtob(b64);
         console.error('Binary string length:' + binaryStr.length);
 
         const bytes = new Uint8Array(binaryStr.length);
@@ -87,7 +103,6 @@ async function pipeRequest(path, query = {}, referer = null) {
         const text = await res.text();
 
         console.error('pipeRequest text length:' + text?.length);
-        console.error('pipeRequest text first 50:' + text?.substring(0, 50));
 
         if (!text || text.trim().startsWith('<')) {
             console.error('Blocked or invalid response for path:' + path);
