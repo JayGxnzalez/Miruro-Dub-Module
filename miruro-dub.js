@@ -19,6 +19,8 @@ const HEADERS = {
     'Sec-Fetch-Site': 'same-origin'
 };
 
+const PROVIDER_ORDER = ['bee', 'hop', 'kiwi', 'telli', 'bun', 'nun', 'arc', 'ally'];
+
 let _global;
 try { _global = globalThis; } catch(e) {
     try { _global = window; } catch(e) {
@@ -205,45 +207,37 @@ async function extractEpisodes(anilistId) {
 
         const providers = data.providers || {};
 
-        // Find best dub provider — prefer bee (HLS), fall back to others
-        const preferredOrder = ['bee', 'hop', 'bun', 'kiwi', 'arc', 'nun', 'ally'];
-        let providerKey = null;
-        let episodeList = [];
-
-        for (const key of preferredOrder) {
+        const providerEpMap = {};
+        for (const key of PROVIDER_ORDER) {
             if (providers[key]?.episodes?.dub?.length) {
-                providerKey = key;
-                episodeList = providers[key].episodes.dub;
-                break;
+                providerEpMap[key] = providers[key].episodes.dub;
+            }
+        }
+        for (const key of Object.keys(providers)) {
+            if (!providerEpMap[key] && providers[key]?.episodes?.dub?.length) {
+                providerEpMap[key] = providers[key].episodes.dub;
             }
         }
 
-        if (!episodeList.length) {
-            for (const key of Object.keys(providers)) {
-                if (providers[key]?.episodes?.dub?.length) {
-                    providerKey = key;
-                    episodeList = providers[key].episodes.dub;
-                    break;
-                }
-            }
-        }
-
-        if (!episodeList.length) {
+        if (Object.keys(providerEpMap).length === 0) {
             console.error('No dub episodes found for AniList ID:' + anilistId);
             return JSON.stringify([]);
         }
 
-        // Also check if ally has dub episodes for secondary stream
-        const allyEpisodes = providers.ally?.episodes?.dub || [];
+        const firstProviderKey = Object.keys(providerEpMap)[0];
+        const firstEpisodeList = providerEpMap[firstProviderKey];
 
-        for (let i = 0; i < episodeList.length; i++) {
-            const ep = episodeList[i];
-            const allyEp = allyEpisodes[i];
-            let href = `anilistId:${anilistId}|provider:${providerKey}|epId:${ep.id}`;
-            if (allyEp) {
-                href += `|allyEpId:${allyEp.id}`;
+        for (let i = 0; i < firstEpisodeList.length; i++) {
+            let href = `anilistId:${anilistId}`;
+            for (const [provKey, epList] of Object.entries(providerEpMap)) {
+                if (epList[i]) {
+                    href += `|${provKey}:${epList[i].id}`;
+                }
             }
-            results.push({ number: ep.number, href });
+            results.push({
+                number: firstEpisodeList[i].number,
+                href
+            });
         }
 
         results.sort((a, b) => a.number - b.number);
@@ -257,77 +251,63 @@ async function extractEpisodes(anilistId) {
 async function extractStreamUrl(slug) {
     try {
         const anilistIdMatch = slug.match(/anilistId:(\d+)/);
-        const providerMatch = slug.match(/provider:([^|]+)/);
-        const epIdMatch = slug.match(/epId:([^|]+)/);
-        const allyEpIdMatch = slug.match(/allyEpId:([^|]+)/);
-
-        if (!anilistIdMatch || !providerMatch || !epIdMatch) {
+        if (!anilistIdMatch) {
             console.error('Invalid slug format:' + slug);
             return JSON.stringify({ streams: [], subtitles: [] });
         }
 
         const anilistId = anilistIdMatch[1];
-        const provider = providerMatch[1];
-        const episodeId = epIdMatch[1];
-        const allyEpisodeId = allyEpIdMatch ? allyEpIdMatch[1] : null;
 
-        const watchReferer = `${MIRURO_BASE}/watch/${anilistId}?ep=${episodeId}`;
-        const streams = [];
-
-        // Fetch primary provider (bee) streams
-        const primaryData = await pipeRequest('sources', {
-            episodeId: episodeId,
-            provider: provider,
-            category: 'dub'
-        }, watchReferer);
-
-        if (primaryData) {
-            const videoArray = primaryData.streams || primaryData.sources || [];
-            for (const stream of videoArray) {
-                if (!stream.url) continue;
-                if (stream.type === 'embed') continue;
-                streams.push({
-                    title: `BEE - 1080p`,
-                    streamUrl: stream.url,
-                    headers: { 'Referer': stream.referer || 'https://megaplay.buzz/' }
-                });
-            }
+        const providerEpIds = {};
+        for (const key of PROVIDER_ORDER) {
+            const match = slug.match(new RegExp(`\\|${key}:([^|]+)`));
+            if (match) providerEpIds[key] = match[1];
+        }
+        const allPairs = slug.matchAll(/\|([a-z]+):([^|]+)/g);
+        for (const pair of allPairs) {
+            if (!providerEpIds[pair[1]]) providerEpIds[pair[1]] = pair[2];
         }
 
-        // Fetch ally streams in parallel if available
-        if (allyEpisodeId) {
-            const allyData = await pipeRequest('sources', {
-                episodeId: allyEpisodeId,
-                provider: 'ally',
-                category: 'dub'
-            }, watchReferer);
+        if (Object.keys(providerEpIds).length === 0) {
+            console.error('No provider episode IDs found in slug');
+            return JSON.stringify({ streams: [], subtitles: [] });
+        }
 
-            if (allyData) {
-                const allyArray = allyData.streams || allyData.sources || [];
-                for (const stream of allyArray) {
+        const watchReferer = `${MIRURO_BASE}/watch/${anilistId}`;
+
+        const providerPromises = Object.entries(providerEpIds).map(async ([provider, episodeId]) => {
+            try {
+                const data = await pipeRequest('sources', {
+                    episodeId: episodeId,
+                    provider: provider,
+                    category: 'dub'
+                }, watchReferer);
+
+                if (!data) return [];
+
+                const videoArray = data.streams || data.sources || [];
+                const streams = [];
+
+                for (const stream of videoArray) {
                     if (!stream.url) continue;
                     if (stream.type === 'embed') continue;
+
                     streams.push({
-                        title: `ALLY - 1080p (Hardsub Signs)`,
+                        title: provider.toUpperCase(),
                         streamUrl: stream.url,
-                        headers: { 'Referer': stream.referer || 'https://allmanga.to/' }
+                        headers: { 'Referer': stream.referer || `${MIRURO_BASE}/` }
                     });
                 }
-            }
-        }
 
-        // Fallback: include embeds if nothing else
-        if (streams.length === 0 && primaryData) {
-            const videoArray = primaryData.streams || primaryData.sources || [];
-            for (const stream of videoArray) {
-                if (!stream.url) continue;
-                streams.push({
-                    title: `${stream.server || provider.toUpperCase()} - ${stream.quality || 'Auto'}`,
-                    streamUrl: stream.url,
-                    headers: { 'Referer': stream.referer || `${MIRURO_BASE}/` }
-                });
+                return streams;
+            } catch (e) {
+                console.error('Provider fetch error for ' + provider + ':' + e);
+                return [];
             }
-        }
+        });
+
+        const allStreams = await Promise.all(providerPromises);
+        const streams = allStreams.flat();
 
         return JSON.stringify({ streams, subtitles: [] });
     } catch (e) {
