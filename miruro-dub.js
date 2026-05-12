@@ -272,22 +272,18 @@ async function extractStreamUrl(slug) {
             if (!stream.url) continue;
             if (stream.type === 'embed') continue;
 
-            const proxiedUrl = 'https://1anime.app/api/m3u8-proxy?url=' + encodeURIComponent(stream.url);
             streams.push({
-                title: `${provider.toUpperCase()} - ${stream.quality || stream.type || 'Auto'}`,
-                streamUrl: proxiedUrl,
-                headers: { 'Referer': 'https://1anime.app/' }
+                title: `${provider.toUpperCase()} - ${stream.quality || '1080p'}`,
+                streamUrl: stream.url
             });
         }
 
         if (streams.length === 0) {
             for (const stream of videoArray) {
                 if (!stream.url) continue;
-                const proxiedUrl = 'https://1anime.app/api/m3u8-proxy?url=' + encodeURIComponent(stream.url);
                 streams.push({
                     title: `${stream.server || provider.toUpperCase()} - ${stream.quality || 'Auto'}`,
-                    streamUrl: proxiedUrl,
-                    headers: { 'Referer': 'https://1anime.app/' }
+                    streamUrl: stream.url
                 });
             }
         }
