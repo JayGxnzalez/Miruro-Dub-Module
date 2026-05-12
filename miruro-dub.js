@@ -219,7 +219,6 @@ async function extractEpisodes(url) {
 
         if (!data || data._blocked) return JSON.stringify([]);
 
-        // Recursively find all episode arrays
         let allEps = [];
         function searchEpisodes(obj) {
             if (Array.isArray(obj)) {
@@ -245,7 +244,6 @@ async function extractEpisodes(url) {
             searchEpisodes(data);
         }
 
-        // Deduplicate by episode number
         const uniqueEps = [];
         const seenNumbers = new Set();
         for (const ep of allEps) {
@@ -277,7 +275,6 @@ async function extractStreamUrl(url) {
 
         const epsData = await makeSecureRequest('episodes', { anilistId: anilistId });
 
-        // Dynamically map all dub provider configs
         const dubConfigs = [];
 
         if (epsData && epsData.providers) {
@@ -285,7 +282,6 @@ async function extractStreamUrl(url) {
                 const provData = epsData.providers[provKey];
                 if (provData?.episodes && typeof provData.episodes === 'object') {
                     for (const catKey in provData.episodes) {
-                        // Only dub categories
                         if (!catKey.toLowerCase().includes('dub')) continue;
 
                         const epList = provData.episodes[catKey];
@@ -338,14 +334,13 @@ async function extractStreamUrl(url) {
 
                         const label = s.quality || (s.type === 'hls' ? 'Auto' : s.type) || 'Auto';
                         streams.push({
-                            title: `${config.name.toUpperCase()} (${label})`,
+                            title: `${label} - ${config.name.toUpperCase()}`,
                             streamUrl: s.url,
                             headers: { 'Referer': s.referer || `${MIRURO_BASE}/` }
                         });
                     }
                 }
 
-                // Extract English subtitles
                 if (res.subtitles && Array.isArray(res.subtitles)) {
                     for (const sub of res.subtitles) {
                         const lang = (sub.language || sub.lang || sub.label || '').toLowerCase();
