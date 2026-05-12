@@ -207,10 +207,18 @@ async function extractEpisodes(anilistId) {
         let providerKey = null;
         let episodeList = [];
 
-        if (providers.ally?.episodes?.dub?.length) {
-            providerKey = 'ally';
-            episodeList = providers.ally.episodes.dub;
-        } else {
+        // Prefer HLS providers, fall back to ally
+        const preferredOrder = ['hop', 'bee', 'bun', 'kiwi', 'arc', 'nun', 'ally'];
+        for (const key of preferredOrder) {
+            if (providers[key]?.episodes?.dub?.length) {
+                providerKey = key;
+                episodeList = providers[key].episodes.dub;
+                break;
+            }
+        }
+
+        // Fall back to any provider with dub episodes
+        if (!episodeList.length) {
             for (const key of Object.keys(providers)) {
                 if (providers[key]?.episodes?.dub?.length) {
                     providerKey = key;
@@ -224,6 +232,8 @@ async function extractEpisodes(anilistId) {
             console.error('No dub episodes found for AniList ID:' + anilistId);
             return JSON.stringify([]);
         }
+
+        console.error('Using provider:' + providerKey);
 
         for (const ep of episodeList) {
             results.push({
@@ -265,9 +275,12 @@ async function extractStreamUrl(slug) {
 
         if (!data) return JSON.stringify({ streams: [], subtitles: [] });
 
+        console.error('Sources data:' + JSON.stringify(data).substring(0, 200));
+
         const videoArray = data.streams || data.sources || [];
         const streams = [];
 
+        // Prefer HLS/MP4 non-embed streams
         for (const stream of videoArray) {
             if (!stream.url) continue;
             if (stream.type === 'embed') continue;
@@ -278,6 +291,7 @@ async function extractStreamUrl(slug) {
             });
         }
 
+        // Fallback: include embeds if nothing else
         if (streams.length === 0) {
             for (const stream of videoArray) {
                 if (!stream.url) continue;
