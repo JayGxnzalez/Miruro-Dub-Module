@@ -39,11 +39,12 @@ async function ensurePako() {
     if (_global.pako) return;
     try {
         const res = await soraFetch('https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js');
-        const code = await res.text();
+        const code = typeof res.text === 'function' ? await res.text() : res.data;
         const runner = new Function('window', 'global', code);
         runner(_global, _global);
+        console.error('Pako loaded successfully:', typeof _global.pako);
     } catch (e) {
-        console.error('Failed to load pako:', e);
+        console.error('Failed to load pako:', e.message);
     }
 }
 
@@ -53,7 +54,7 @@ async function decodePipeResponse(text) {
         console.error('Raw text first 100:', text?.substring(0, 100));
 
         await ensurePako();
-        console.error('Pako loaded:', typeof _global.pako);
+        console.error('Pako type:', typeof _global.pako);
 
         let b64 = text.replace(/-/g, '+').replace(/_/g, '/');
         const pad = b64.length % 4;
@@ -91,7 +92,14 @@ async function pipeRequest(path, query = {}, referer = null) {
 
     try {
         const res = await soraFetch(`${MIRURO_PIPE}?e=${e}`, { headers: headers, method: 'GET', body: null });
-        const text = await res.text();
+
+        let text = null;
+        if (res) {
+            text = typeof res.text === 'function' ? await res.text() : res.data;
+        }
+
+        console.error('pipeRequest text length:', text?.length);
+        console.error('pipeRequest text first 50:', text?.substring(0, 50));
 
         if (!text || text.trim().startsWith('<')) {
             console.error('Blocked or invalid response for path:', path);
@@ -100,7 +108,7 @@ async function pipeRequest(path, query = {}, referer = null) {
 
         return await decodePipeResponse(text);
     } catch (e) {
-        console.error('Pipe request error:', e);
+        console.error('Pipe request error:', e.message);
         return null;
     }
 }
