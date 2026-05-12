@@ -13,6 +13,14 @@ const HEADERS = {
     'Sec-Fetch-Site': 'same-origin'
 };
 
+async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
+    try {
+        return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
+    } catch(e) {
+        try { return await fetch(url, options); } catch(error) { return null; }
+    }
+}
+
 function encodePayload(obj) {
     const jsonStr = JSON.stringify(obj);
     const utf8Str = unescape(encodeURIComponent(jsonStr));
@@ -23,7 +31,7 @@ function encodePayload(obj) {
 async function ensurePako() {
     if (typeof pako !== 'undefined') return;
     try {
-        const res = await fetchv2('https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js', {});
+        const res = await soraFetch('https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js');
         const code = await res.text();
         eval(code);
     } catch (e) {
@@ -67,7 +75,7 @@ async function pipeRequest(path, query = {}, referer = null) {
     if (referer) headers['Referer'] = referer;
 
     try {
-        const res = await fetchv2(`${MIRURO_PIPE}?e=${e}`, headers);
+        const res = await soraFetch(`${MIRURO_PIPE}?e=${e}`, { headers: headers, method: 'GET', body: null });
         const text = await res.text();
 
         if (!text || text.trim().startsWith('<')) {
