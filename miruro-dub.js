@@ -207,7 +207,6 @@ async function extractEpisodes(anilistId) {
         let providerKey = null;
         let episodeList = [];
 
-        // Prefer HLS providers, fall back to ally
         const preferredOrder = ['hop', 'bee', 'bun', 'kiwi', 'arc', 'nun', 'ally'];
         for (const key of preferredOrder) {
             if (providers[key]?.episodes?.dub?.length) {
@@ -217,7 +216,6 @@ async function extractEpisodes(anilistId) {
             }
         }
 
-        // Fall back to any provider with dub episodes
         if (!episodeList.length) {
             for (const key of Object.keys(providers)) {
                 if (providers[key]?.episodes?.dub?.length) {
@@ -275,29 +273,27 @@ async function extractStreamUrl(slug) {
 
         if (!data) return JSON.stringify({ streams: [], subtitles: [] });
 
-        console.error('Sources data:' + JSON.stringify(data).substring(0, 200));
-
         const videoArray = data.streams || data.sources || [];
         const streams = [];
 
-        // Prefer HLS/MP4 non-embed streams
         for (const stream of videoArray) {
             if (!stream.url) continue;
             if (stream.type === 'embed') continue;
 
             streams.push({
-                title: `${provider.toUpperCase()} - ${stream.quality || '1080p'}`,
-                streamUrl: stream.url
+                title: `${provider.toUpperCase()} - ${stream.quality || stream.type || 'Auto'}`,
+                streamUrl: stream.url,
+                headers: { 'Referer': stream.referer || 'https://megaplay.buzz/' }
             });
         }
 
-        // Fallback: include embeds if nothing else
         if (streams.length === 0) {
             for (const stream of videoArray) {
                 if (!stream.url) continue;
                 streams.push({
                     title: `${stream.server || provider.toUpperCase()} - ${stream.quality || 'Auto'}`,
-                    streamUrl: stream.url
+                    streamUrl: stream.url,
+                    headers: { 'Referer': stream.referer || 'https://megaplay.buzz/' }
                 });
             }
         }
