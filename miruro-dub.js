@@ -204,10 +204,12 @@ async function extractEpisodes(anilistId) {
         if (!data) return JSON.stringify([]);
 
         const providers = data.providers || {};
+
+        // Find best dub provider — prefer bee (HLS), fall back to others
+        const preferredOrder = ['bee', 'hop', 'bun', 'kiwi', 'arc', 'nun', 'ally'];
         let providerKey = null;
         let episodeList = [];
 
-        const preferredOrder = ['hop', 'bee', 'bun', 'kiwi', 'arc', 'nun', 'ally'];
         for (const key of preferredOrder) {
             if (providers[key]?.episodes?.dub?.length) {
                 providerKey = key;
@@ -231,13 +233,17 @@ async function extractEpisodes(anilistId) {
             return JSON.stringify([]);
         }
 
-        console.error('Using provider:' + providerKey);
+        // Also check if ally has dub episodes for secondary stream
+        const allyEpisodes = providers.ally?.episodes?.dub || [];
 
-        for (const ep of episodeList) {
-            results.push({
-                number: ep.number,
-                href: `anilistId:${anilistId}|provider:${providerKey}|epId:${ep.id}`
-            });
+        for (let i = 0; i < episodeList.length; i++) {
+            const ep = episodeList[i];
+            const allyEp = allyEpisodes[i];
+            let href = `anilistId:${anilistId}|provider:${providerKey}|epId:${ep.id}`;
+            if (allyEp) {
+                href += `|allyEpId:${allyEp.id}`;
+            }
+            results.push({ number: ep.number, href });
         }
 
         results.sort((a, b) => a.number - b.number);
@@ -253,6 +259,7 @@ async function extractStreamUrl(slug) {
         const anilistIdMatch = slug.match(/anilistId:(\d+)/);
         const providerMatch = slug.match(/provider:([^|]+)/);
         const epIdMatch = slug.match(/epId:([^|]+)/);
+        const allyEpIdMatch = slug.match(/allyEpId:([^|]+)/);
 
         if (!anilistIdMatch || !providerMatch || !epIdMatch) {
             console.error('Invalid slug format:' + slug);
@@ -262,38 +269,62 @@ async function extractStreamUrl(slug) {
         const anilistId = anilistIdMatch[1];
         const provider = providerMatch[1];
         const episodeId = epIdMatch[1];
+        const allyEpisodeId = allyEpIdMatch ? allyEpIdMatch[1] : null;
 
         const watchReferer = `${MIRURO_BASE}/watch/${anilistId}?ep=${episodeId}`;
+        const streams = [];
 
-        const data = await pipeRequest('sources', {
+        // Fetch primary provider (bee) streams
+        const primaryData = await pipeRequest('sources', {
             episodeId: episodeId,
             provider: provider,
             category: 'dub'
         }, watchReferer);
 
-        if (!data) return JSON.stringify({ streams: [], subtitles: [] });
-
-        const videoArray = data.streams || data.sources || [];
-        const streams = [];
-
-        for (const stream of videoArray) {
-            if (!stream.url) continue;
-            if (stream.type === 'embed') continue;
-
-            streams.push({
-                title: `${provider.toUpperCase()} - ${stream.quality || stream.type || 'Auto'}`,
-                streamUrl: stream.url,
-                headers: { 'Referer': stream.referer || 'https://megaplay.buzz/' }
-            });
+        if (primaryData) {
+            const videoArray = primaryData.streams || primaryData.sources || [];
+            for (const stream of videoArray) {
+                if (!stream.url) continue;
+                if (stream.type === 'embed') continue;
+                streams.push({
+                    title: `BEE - 1080p`,
+                    streamUrl: stream.url,
+                    headers: { 'Referer': stream.referer || 'https://megaplay.buzz/' }
+                });
+            }
         }
 
-        if (streams.length === 0) {
+        // Fetch ally streams in parallel if available
+        if (allyEpisodeId) {
+            const allyData = await pipeRequest('sources', {
+                episodeId: allyEpisodeId,
+                provider: 'ally',
+                category: 'dub'
+            }, watchReferer);
+
+            if (allyData) {
+                const allyArray = allyData.streams || allyData.sources || [];
+                for (const stream of allyArray) {
+                    if (!stream.url) continue;
+                    if (stream.type === 'embed') continue;
+                    streams.push({
+                        title: `ALLY - 1080p (Hardsub Signs)`,
+                        streamUrl: stream.url,
+                        headers: { 'Referer': stream.referer || 'https://allmanga.to/' }
+                    });
+                }
+            }
+        }
+
+        // Fallback: include embeds if nothing else
+        if (streams.length === 0 && primaryData) {
+            const videoArray = primaryData.streams || primaryData.sources || [];
             for (const stream of videoArray) {
                 if (!stream.url) continue;
                 streams.push({
                     title: `${stream.server || provider.toUpperCase()} - ${stream.quality || 'Auto'}`,
                     streamUrl: stream.url,
-                    headers: { 'Referer': stream.referer || 'https://megaplay.buzz/' }
+                    headers: { 'Referer': stream.referer || `${MIRURO_BASE}/` }
                 });
             }
         }
