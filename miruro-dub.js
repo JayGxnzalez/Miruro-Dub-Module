@@ -1,19 +1,18 @@
-// Miruro DUB - Full rewrite with pako decompression
+// Miruro DUB - Sources via AllAnime/AllManga infrastructure
 
-const MIRURO_BASE = 'https://www.miruro.tv';
-const MIRURO_PIPE = 'https://www.miruro.tv/api/secure/pipe';
+const MIRURO_BASE = 'https://www.miruro.to';
+const MIRURO_PIPE = 'https://www.miruro.to/api/secure/pipe';
 
 const HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
     'Accept': '*/*',
-    'Origin': 'https://www.miruro.tv',
-    'Referer': 'https://www.miruro.tv/',
+    'Origin': 'https://www.miruro.to',
+    'Referer': 'https://www.miruro.to/',
     'Sec-Fetch-Dest': 'empty',
     'Sec-Fetch-Mode': 'cors',
     'Sec-Fetch-Site': 'same-origin'
 };
 
-// Helper: base64url encode a JSON object
 function encodePayload(obj) {
     const jsonStr = JSON.stringify(obj);
     const utf8Str = unescape(encodeURIComponent(jsonStr));
@@ -21,7 +20,6 @@ function encodePayload(obj) {
     return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-// Load pako from CDN if not available
 async function ensurePako() {
     if (typeof pako !== 'undefined') return;
     try {
@@ -33,7 +31,6 @@ async function ensurePako() {
     }
 }
 
-// Decode Miruro's base64 + gzip response using pako
 async function decodePipeResponse(text) {
     try {
         await ensurePako();
@@ -56,7 +53,6 @@ async function decodePipeResponse(text) {
     }
 }
 
-// Core pipe request helper
 async function pipeRequest(path, query = {}, referer = null) {
     const payload = {
         path: path,
@@ -86,7 +82,6 @@ async function pipeRequest(path, query = {}, referer = null) {
     }
 }
 
-// Step 1: Search
 async function searchResults(keyword) {
     const results = [];
 
@@ -110,9 +105,9 @@ async function searchResults(keyword) {
                 anime.title?.native ||
                 'Unknown';
             const image =
-                anime.coverImage?.extraLarge ||
                 anime.coverImage?.large ||
                 anime.coverImage?.medium ||
+                anime.coverImage?.extraLarge ||
                 '';
             const href = String(anime.id);
 
@@ -127,7 +122,6 @@ async function searchResults(keyword) {
     return JSON.stringify(results);
 }
 
-// Step 2: Details
 async function extractDetails(anilistId) {
     try {
         const data = await pipeRequest(`info/anilist/${anilistId}`);
@@ -152,7 +146,6 @@ async function extractDetails(anilistId) {
     }
 }
 
-// Step 3: Episodes via Miruro native endpoint
 async function extractEpisodes(anilistId) {
     const results = [];
 
@@ -165,12 +158,10 @@ async function extractEpisodes(anilistId) {
         let providerKey = null;
         let episodeList = [];
 
-        // Prefer ally for dub
         if (providers.ally?.episodes?.dub?.length) {
             providerKey = 'ally';
             episodeList = providers.ally.episodes.dub;
         } else {
-            // Fall back to any provider with dub episodes
             for (const key of Object.keys(providers)) {
                 if (providers[key]?.episodes?.dub?.length) {
                     providerKey = key;
@@ -200,7 +191,6 @@ async function extractEpisodes(anilistId) {
     return JSON.stringify(results);
 }
 
-// Step 4: Stream URL
 async function extractStreamUrl(slug) {
     try {
         const anilistIdMatch = slug.match(/anilistId:(\d+)/);
@@ -240,7 +230,6 @@ async function extractStreamUrl(slug) {
             });
         }
 
-        // Fallback: include embeds if nothing else
         if (streams.length === 0) {
             for (const stream of videoArray) {
                 if (!stream.url) continue;
