@@ -13,6 +13,13 @@ const HEADERS = {
     'Sec-Fetch-Site': 'same-origin'
 };
 
+let _global;
+try { _global = globalThis; } catch(e) {
+    try { _global = window; } catch(e) {
+        try { _global = global; } catch(e) { _global = this; }
+    }
+}
+
 async function soraFetch(url, options = { headers: {}, method: 'GET', body: null }) {
     try {
         return await fetchv2(url, options.headers ?? {}, options.method ?? 'GET', options.body ?? null);
@@ -29,11 +36,12 @@ function encodePayload(obj) {
 }
 
 async function ensurePako() {
-    if (typeof pako !== 'undefined') return;
+    if (_global.pako) return;
     try {
         const res = await soraFetch('https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js');
         const code = await res.text();
-        eval(code);
+        const runner = new Function('window', 'global', code);
+        runner(_global, _global);
     } catch (e) {
         console.error('Failed to load pako:', e);
     }
@@ -53,7 +61,7 @@ async function decodePipeResponse(text) {
             bytes[i] = binaryStr.charCodeAt(i);
         }
 
-        const result = pako.ungzip(bytes, { to: 'string' });
+        const result = _global.pako.ungzip(bytes, { to: 'string' });
         return JSON.parse(result);
     } catch (e) {
         console.error('Failed to decode pipe response:', e);
