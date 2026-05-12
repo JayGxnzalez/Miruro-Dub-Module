@@ -19,7 +19,7 @@ const HEADERS = {
     'Sec-Fetch-Site': 'same-origin'
 };
 
-const PROVIDER_ORDER = ['bee', 'hop', 'kiwi', 'telli', 'bun', 'nun', 'arc', 'ally'];
+const PROVIDER_ORDER = ['bee', 'hop', 'kiwi', 'telli', 'bun', 'nun', 'ally'];
 
 let _global;
 try { _global = globalThis; } catch(e) {
@@ -286,20 +286,19 @@ async function extractStreamUrl(slug) {
                 if (!data) return [];
 
                 const videoArray = data.streams || data.sources || [];
-                const streams = [];
 
+                // Only take first non-embed stream per provider
                 for (const stream of videoArray) {
                     if (!stream.url) continue;
                     if (stream.type === 'embed') continue;
-
-                    streams.push({
+                    return [{
                         title: provider.toUpperCase(),
                         streamUrl: stream.url,
                         headers: { 'Referer': stream.referer || `${MIRURO_BASE}/` }
-                    });
+                    }];
                 }
 
-                return streams;
+                return [];
             } catch (e) {
                 console.error('Provider fetch error for ' + provider + ':' + e);
                 return [];
