@@ -110,7 +110,7 @@ async function makeSecureRequest(path, query = {}, refererUrl = null) {
 
     if (!b64Text) return null;
 
-    if (b64Text.trim().startsWith('<') || b64Text.toLowerCase().includes('cloudflare') || b64Text.toLowerCase().includes('just a moment')) {
+    if (b64Text.trim().startsWith('<') || b64Text.toLowerCase().includes('cloudflare') || b64Text.toLowerCase().includes('just a moment') || b64Text.toLowerCase().includes('upstream unreachable')) {
         console.error('Blocked by Cloudflare for path:' + path);
         return { _blocked: true };
     }
@@ -232,7 +232,6 @@ async function extractEpisodes(url) {
             }
         }
 
-        // Only search dub episodes
         if (data.providers) {
             for (const provKey in data.providers) {
                 const provData = data.providers[provKey];
@@ -275,9 +274,13 @@ async function extractStreamUrl(url) {
 
         const epsData = await makeSecureRequest('episodes', { anilistId: anilistId });
 
+        if (!epsData || epsData._blocked) {
+            return JSON.stringify({ type: 'none' });
+        }
+
         const dubConfigs = [];
 
-        if (epsData && epsData.providers) {
+        if (epsData.providers) {
             for (const provKey in epsData.providers) {
                 const provData = epsData.providers[provKey];
                 if (provData?.episodes && typeof provData.episodes === 'object') {
@@ -302,7 +305,7 @@ async function extractStreamUrl(url) {
 
         if (dubConfigs.length === 0) {
             console.error('No dub configs found for episode:' + epNumber);
-            return JSON.stringify({ streams: [], subtitles: [] });
+            return JSON.stringify({ type: 'none' });
         }
 
         const streams = [];
@@ -325,7 +328,22 @@ async function extractStreamUrl(url) {
 
                 if (!res || res._blocked) continue;
 
-                const videoArray = res.sources || res.streams || [];
+                let videoArray = res.sources || res.streams || [];
+
+                if (!Array.isArray(videoArray) || videoArray.length === 0) {
+                    const possibleKeys = [config.cat, 'sub', 'ssub', 'dub', 'hdub', 'hsub'];
+                    for (const k of possibleKeys) {
+                        if (res[k]) {
+                            if (Array.isArray(res[k].streams) && res[k].streams.length > 0) {
+                                videoArray = res[k].streams;
+                                break;
+                            } else if (Array.isArray(res[k].sources) && res[k].sources.length > 0) {
+                                videoArray = res[k].sources;
+                                break;
+                            }
+                        }
+                    }
+                }
 
                 if (Array.isArray(videoArray) && videoArray.length > 0) {
                     for (const s of videoArray) {
@@ -354,10 +372,14 @@ async function extractStreamUrl(url) {
             }
         }
 
-        return JSON.stringify({ streams, subtitles: bestSubtitle });
+        if (streams.length > 0) {
+            return JSON.stringify({ type: 'servers', streams: streams, subtitles: bestSubtitle });
+        } else {
+            return JSON.stringify({ type: 'none' });
+        }
     } catch (e) {
         console.error('extractStreamUrl error:' + e);
-        return JSON.stringify({ streams: [], subtitles: [] });
+        return JSON.stringify({ type: 'none' });
     }
 }
 
